@@ -493,6 +493,8 @@ func handleFile(c *gin.Context) {
 
 func main() {
 
+	flag.Parse()
+
 	logger, _ = zap.NewProduction()
 	defer logger.Sync()
 	// Parse config file

@@ -1,0 +1,27 @@
+version: '3.3'
+
+networks:
+  proxy:
+    external: true
+
+services:
+  notification-bot:
+    image: nerdneils/simple-telegram-notification-bot:latest
+    networks:
+      - proxy
+    command: ./server -conf /etc/notification-bot/config.toml -db /data/notification-bot.db
+    volumes:
+      - ./config.toml:/etc/notification-bot/config.toml
+      - ./data:/data
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - "traefik.http.routers.tg-notification.entrypoints=http"
+      - "traefik.http.routers.tg-notification.rule=Host(`tg-notification.example.org`)"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.tg-notification.middlewares=https-redirect@docker"
+      - traefik.http.routers.tg-notification.entrypoints=https
+      - "traefik.http.routers.tg-notification.rule=Host(`tg-notification.example.org`)"
+      - traefik.http.routers.tg-notification.tls=true
+      - traefik.http.routers.tg-notification.tls.certresolver=cloudflare
+      - "traefik.http.services.tg-notification.loadbalancer.server.port=7888"
