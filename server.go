@@ -98,7 +98,7 @@ func sendMarkdownV2(chatID int64, text string) {
 	bot.Send(msg)
 }
 
-func handleSubscribe(chatID int64) {
+func handleSubscribe(chatID int64, managerID int64) {
 	var subscription Subscription
 	db.First(&subscription, "chat_id = ?", chatID)
 	if subscription.UUID != "" {
@@ -106,9 +106,10 @@ func handleSubscribe(chatID int64) {
 		db.Save(&subscription)
 		subscripedText := ""
 		subscripedText += "You are already subscribed\n\n"
+		subscripedText += "Your chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
 		subscripedText += "Your UUID: `" + subscription.UUID + "`\n\n"
 		subscripedText += "Your AES key: `" + subscription.AESKey + "`\n\n"
-		sendMarkdownV2(chatID, subscripedText)
+		sendMarkdownV2(managerID, subscripedText)
 		return
 	}
 	uuidStr := uuid.New().String()
@@ -116,24 +117,25 @@ func handleSubscribe(chatID int64) {
 	aesKey, err := generateRandomAESKey()
 	if err != nil {
 		logger.Error("Failed to generate AES key", zap.Error(err))
-		bot.Send(tgbotapi.NewMessage(chatID, "Failed to generate AES key"))
+		bot.Send(tgbotapi.NewMessage(managerID, "Failed to generate AES key"))
 		return
 	}
 	db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey})
 	subscripedText := ""
 	subscripedText += "Subscribed\n\n"
+	subscripedText += "Your chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
 	subscripedText += "Your UUID: `" + uuidStr + "`\n\n"
 	subscripedText += "Your AES key: `" + aesKey + "`\n\n"
-	sendMarkdownV2(chatID, subscripedText)
+	sendMarkdownV2(managerID, subscripedText)
 }
 
-func handleRegenerate(chatID int64) {
+func handleRegenerate(chatID int64, managerID int64) {
 	uuidStr := uuid.New().String()
 	uuidStr = strings.Replace(uuidStr, "-", "", -1) // Remove dashes
 	aesKey, err := generateRandomAESKey()
 	if err != nil {
 		logger.Error("Failed to generate AES key", zap.Error(err))
-		bot.Send(tgbotapi.NewMessage(chatID, "Failed to generate AES key"))
+		bot.Send(tgbotapi.NewMessage(managerID, "Failed to generate AES key"))
 		return
 	}
 	var subscription Subscription
@@ -145,29 +147,29 @@ func handleRegenerate(chatID int64) {
 		subscriptionText := "Regenerated\n\n"
 		subscriptionText += "Your UUID: `" + uuidStr + "`\n\n"
 		subscriptionText += "Your AES key: `" + aesKey + "`\n\n"
-		sendMarkdownV2(chatID, subscriptionText)
+		sendMarkdownV2(managerID, subscriptionText)
 	} else {
 		db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey})
 		subscriptionText := "Subscribed\n\n"
 		subscriptionText += "Your UUID: `" + uuidStr + "`\n\n"
 		subscriptionText += "Your AES key: `" + aesKey + "`\n\n"
-		sendMarkdownV2(chatID, subscriptionText)
+		sendMarkdownV2(managerID, subscriptionText)
 	}
 }
 
-func handleUnsubscribe(chatID int64) {
+func handleUnsubscribe(chatID int64, managerID int64) {
 	var subscription Subscription
 	db.First(&subscription, "chat_id = ?", chatID)
 	if subscription.UUID != "" {
 		subscription.ReceiveMsgs = false
 		db.Save(&subscription)
-		bot.Send(tgbotapi.NewMessage(chatID, "Unsubscribed"))
+		bot.Send(tgbotapi.NewMessage(managerID, "Unsubscribed"))
 	} else {
-		bot.Send(tgbotapi.NewMessage(chatID, "Invalid UUID or not subscribed"))
+		bot.Send(tgbotapi.NewMessage(managerID, "Invalid UUID or not subscribed"))
 	}
 }
 
-func handleInfo(chatID int64) {
+func handleInfo(chatID int64, managerID int64) {
 	var subscription Subscription
 	db.First(&subscription, "chat_id = ?", chatID)
 	if subscription.UUID != "" {
@@ -180,16 +182,16 @@ func handleInfo(chatID int64) {
 		} else {
 			msgText += "You are not subscribed to receive messages\n"
 		}
-		sendMarkdownV2(chatID, msgText)
+		sendMarkdownV2(managerID, msgText)
 	} else {
 		msgText := "Your Chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
 		msgText += "You are not subscribed to receive messages\n\n"
 		msgText += "Use /subscribe to subscribe to receive messages"
-		sendMarkdownV2(chatID, msgText)
+		sendMarkdownV2(managerID, msgText)
 	}
 }
 
-func handleHelp(chatID int64) {
+func handleHelp(chatID int64, managerID int64) {
 
 	subscription := Subscription{}
 	db.First(&subscription, "chat_id = ?", chatID)
@@ -226,7 +228,27 @@ Here are the available endpoints and how to use them:
 
 More information can be found at [nerdneilsfield/simple-telegram-notification-bot](https://github.com/nerdneilsfield/simple-telegram-notification-bot)
 `
-	sendMarkdownV2(chatID, helpText)
+	sendMarkdownV2(managerID, helpText)
+}
+
+func checkBotIsChannelAdmin(chatID int64) bool {
+	admins, err := bot.GetChatAdministrators(tgbotapi.ChatAdministratorsConfig{
+		ChatConfig: tgbotapi.ChatConfig{
+			ChatID: chatID,
+		},
+	})
+	if err != nil {
+		logger.Error("Failed to get chat administrators", zap.Error(err))
+		sendMarkdownV2(chatID, "Failed to get chat administrators")
+		return false
+	}
+	botID := bot.Self.ID
+	for _, admin := range admins {
+		if admin.User.ID == botID {
+			return true
+		}
+	}
+	return false
 }
 
 func startBot() {
@@ -243,23 +265,55 @@ func startBot() {
 			continue
 		}
 
-		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
+		logger.Info("[%s] %s", zap.Int("update_id", update.UpdateID), zap.String("message", update.Message.Text))
+
+		if update.Message.ForwardFromChat != nil && update.Message.ForwardFromChat.Type == "channel" {
+			logger.Info("Received forwarded message from channel: " + update.Message.ForwardFromChat.Title)
+
+			chatID := update.Message.ForwardFromChat.ID
+			if !checkBotIsChannelAdmin(chatID) {
+				logger.Error("Bot is not an admin of the channel")
+				sendMarkdownV2(update.Message.Chat.ID, "Bot is not an admin of the channel")
+				continue
+			} else {
+				logger.Info("Bot is an admin of the channel")
+				sendMarkdownV2(update.Message.Chat.ID, "Bot is an admin of the channel, channel id is: `"+strconv.FormatInt(chatID, 10)+"`")
+				continue
+			}
+		}
 
 		if update.Message.IsCommand() {
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+
+			var chatID int64
+			if update.Message.CommandArguments() != "" {
+				arguments := strings.TrimSpace(update.Message.CommandArguments())
+				logger.Info("Received command arguments: " + arguments)
+				chatID, err := strconv.ParseInt(arguments, 10, 64)
+				if err != nil {
+					logger.Error("Failed to parse chat ID", zap.Error(err))
+					msgText := "Failed to parse chat ID: " + arguments
+					sendMarkdownV2(update.Message.Chat.ID, msgText)
+					continue
+				}
+				logger.Info("Setting for Chat ID: " + strconv.FormatInt(chatID, 10))
+			} else {
+				chatID = update.Message.Chat.ID
+			}
+
 			switch update.Message.Command() {
 			case "start":
-				handleHelp(update.Message.Chat.ID)
+				handleHelp(chatID, update.Message.Chat.ID)
 			case "subscribe":
-				handleSubscribe(update.Message.Chat.ID)
+				handleSubscribe(chatID, update.Message.Chat.ID)
 			case "unsubscribe":
-				handleUnsubscribe(update.Message.Chat.ID)
+				handleUnsubscribe(chatID, update.Message.Chat.ID)
 			case "regenerate":
-				handleRegenerate(update.Message.Chat.ID)
+				handleRegenerate(chatID, update.Message.Chat.ID)
 			case "info":
-				handleInfo(update.Message.Chat.ID)
+				handleInfo(chatID, update.Message.Chat.ID)
 			case "help":
-				handleHelp(update.Message.Chat.ID)
+				handleHelp(chatID, update.Message.Chat.ID)
 			default:
 				msg.Text = "I don't know that command"
 				msg.Text += "\n\n"

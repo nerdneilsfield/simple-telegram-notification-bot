@@ -110,10 +110,10 @@ services:
       - "traefik.http.routers.tg-notification.rule=Host(`tg-notification.example.org`)"
       - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
       - "traefik.http.routers.tg-notification.middlewares=https-redirect@docker"
-      - traefik.http.routers.tg-notification.entrypoints=https
-      - "traefik.http.routers.tg-notification.rule=Host(`tg-notification.example.org`)"
-      - traefik.http.routers.tg-notification.tls=true
-      - traefik.http.routers.tg-notification.tls.certresolver=cloudflare
+      - traefik.http.routers.tg-notification-secure.entrypoints=https
+      - "traefik.http.routers.tg-notification-secure.rule=Host(`tg-notification.example.org`)"
+      - traefik.http.routers.tg-notification-secure.tls=true
+      - traefik.http.routers.tg-notification-secure.tls.certresolver=cloudflare
       - "traefik.http.services.tg-notification.loadbalancer.server.port=7888"
 ```
 

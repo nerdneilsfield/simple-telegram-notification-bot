@@ -1,6 +1,8 @@
 # Stage 1: Build the Go binary
 FROM golang:1.21.2-alpine AS builder
 
+RUN apk add --no-cache git gcc musl-dev sqlite-dev
+
 # Set the current working directory inside the container
 WORKDIR /app
 
@@ -13,7 +15,7 @@ COPY go.sum /app/go.sum
 RUN go mod download
 
 # Build the binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o server ./server.go
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o server ./server.go
 
 # Stage 2: Run the binary in a minimal image
 FROM alpine:latest
@@ -22,6 +24,7 @@ FROM alpine:latest
 WORKDIR /root/
 
 # Copy the binary from builder
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/server .
 
 # Expose the application on port 8080
