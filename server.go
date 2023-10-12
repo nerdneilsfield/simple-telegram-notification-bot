@@ -83,15 +83,32 @@ func initBot(token string, url string) {
 	logger.Info("Telegram bot commands set")
 }
 
+func escapeMarkdownV2(text string) string {
+	charactersToEscape := []string{"_", "[", "]", "(", ")", "~", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
+	for _, char := range charactersToEscape {
+		text = strings.ReplaceAll(text, char, "\\"+char)
+	}
+	return text
+}
+
+func sendMarkdownV2(chatID int64, text string) {
+	text = escapeMarkdownV2(text)
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdownV2
+	bot.Send(msg)
+}
+
 func handleSubscribe(chatID int64) {
 	var subscription Subscription
 	db.First(&subscription, "chat_id = ?", chatID)
 	if subscription.UUID != "" {
 		subscription.ReceiveMsgs = true
 		db.Save(&subscription)
-		bot.Send(tgbotapi.NewMessage(chatID, "Turn on notifications wigth UUID: "+subscription.UUID))
-		bot.Send(tgbotapi.NewMessage(chatID, "Your AES key: "+subscription.AESKey))
-		bot.Send(tgbotapi.NewMessage(chatID, "Your uuid string is: "+subscription.UUID))
+		subscripedText := ""
+		subscripedText += "You are already subscribed\n\n"
+		subscripedText += "Your UUID: `" + subscription.UUID + "`\n\n"
+		subscripedText += "Your AES key: `" + subscription.AESKey + "`\n\n"
+		sendMarkdownV2(chatID, subscripedText)
 		return
 	}
 	uuidStr := uuid.New().String()
@@ -103,9 +120,11 @@ func handleSubscribe(chatID int64) {
 		return
 	}
 	db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey})
-	bot.Send(tgbotapi.NewMessage(chatID, "Subscribed with UUID: "+uuidStr))
-	bot.Send(tgbotapi.NewMessage(chatID, "Your AES key: "+aesKey))
-	bot.Send(tgbotapi.NewMessage(chatID, "Your uuid string is: "+uuidStr))
+	subscripedText := ""
+	subscripedText += "Subscribed\n\n"
+	subscripedText += "Your UUID: `" + uuidStr + "`\n\n"
+	subscripedText += "Your AES key: `" + aesKey + "`\n\n"
+	sendMarkdownV2(chatID, subscripedText)
 }
 
 func handleRegenerate(chatID int64) {
@@ -123,14 +142,16 @@ func handleRegenerate(chatID int64) {
 		subscription.UUID = uuidStr
 		subscription.AESKey = aesKey
 		db.Save(&subscription)
-		bot.Send(tgbotapi.NewMessage(chatID, "Regenerated UUID: "+uuidStr))
-		bot.Send(tgbotapi.NewMessage(chatID, "Your new AES key: "+aesKey))
-		bot.Send(tgbotapi.NewMessage(chatID, "Your uuid string is: "+uuidStr))
+		subscriptionText := "Regenerated\n\n"
+		subscriptionText += "Your UUID: `" + uuidStr + "`\n\n"
+		subscriptionText += "Your AES key: `" + aesKey + "`\n\n"
+		sendMarkdownV2(chatID, subscriptionText)
 	} else {
 		db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey})
-		bot.Send(tgbotapi.NewMessage(chatID, "Subscribed with UUID: "+uuidStr))
-		bot.Send(tgbotapi.NewMessage(chatID, "Your AES key: "+aesKey))
-		bot.Send(tgbotapi.NewMessage(chatID, "Your uuid string is: "+uuidStr))
+		subscriptionText := "Subscribed\n\n"
+		subscriptionText += "Your UUID: `" + uuidStr + "`\n\n"
+		subscriptionText += "Your AES key: `" + aesKey + "`\n\n"
+		sendMarkdownV2(chatID, subscriptionText)
 	}
 }
 
@@ -151,34 +172,61 @@ func handleInfo(chatID int64) {
 	db.First(&subscription, "chat_id = ?", chatID)
 	if subscription.UUID != "" {
 		msgText := ""
-		msgText += "Your chat ID: " + strconv.FormatInt(chatID, 10) + "\n"
-		msgText += "Your UUID: " + subscription.UUID + "\n"
-		msgText += "Your AES key: " + subscription.AESKey + "\n"
+		msgText += "Your chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
+		msgText += "Your UUID: `" + subscription.UUID + "`\n\n"
+		msgText += "Your AES key: `" + subscription.AESKey + "`\n\n"
 		if subscription.ReceiveMsgs {
 			msgText += "You are subscribed to receive messages\n"
 		} else {
 			msgText += "You are not subscribed to receive messages\n"
 		}
-		bot.Send(tgbotapi.NewMessage(chatID, msgText))
+		sendMarkdownV2(chatID, msgText)
 	} else {
-		bot.Send(tgbotapi.NewMessage(chatID, "Your chat ID: "+strconv.FormatInt(chatID, 10)))
-		bot.Send(tgbotapi.NewMessage(chatID, "Invalid UUID or not subscribed"))
+		msgText := "Your Chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
+		msgText += "You are not subscribed to receive messages\n\n"
+		msgText += "Use /subscribe to subscribe to receive messages"
+		sendMarkdownV2(chatID, msgText)
 	}
 }
 
 func handleHelp(chatID int64) {
-	helpText := ""
-	helpText += "Use /subscribe to subscribe to receive messages\n"
-	helpText += "Use /unsubscribe to unsubscribe from receiving messages\n"
-	helpText += "Use /regenerate to regenerate UUID and AES key\n"
-	helpText += "Use /info to get your chat ID, UUID and AES key\n"
-	helpText += "After subscribed, you will get a UUID and an AES key\n"
-	helpText += "You can use the UUID and AES key to send messages to your Telegram bot\n"
-	helpText += "POST to " + config.PostURL + "/api/<UUID>/json with JSON body {\"encrypted\": true, \"msg\": \"<encrypted message>\"} to send an encrypted message\n"
-	helpText += "GET to " + config.PostURL + "/api/<UUID>/get?msg=<message>&encrypted=<true/false> to send a message\n"
-	helpText += "POST to " + config.PostURL + "/api/<UUID>/form with form data msg=<message>, encryped=<true/false> to send a message\n"
-	helpText += "POST to " + config.PostURL + "/api/<UUID>/file with form data file=<file> to send a file\n"
-	bot.Send(tgbotapi.NewMessage(chatID, helpText))
+
+	subscription := Subscription{}
+	db.First(&subscription, "chat_id = ?", chatID)
+	uuidStr := ""
+	if subscription.UUID != "" {
+		uuidStr = subscription.UUID
+	} else {
+		uuidStr = "<UUID>"
+	}
+
+	helpText := `
+Here are the available commands:
+
+- /subscribe: Subscribe to receive messages
+- /unsubscribe: Unsubscribe from receiving messages
+- /regenerate: Regenerate UUID and AES key
+- /info: Get your chat ID, UUID and AES key
+
+After subscribing, you will receive a UUID and an AES key which can be used to send messages to your Telegram bot.
+
+Here are the available endpoints and how to use them:
+
+- **JSON Endpoint**:  
+  POST to ` + "`" + config.PostURL + "/api/" + uuidStr + "/json`" + ` with JSON body {"encrypted": true, "msg": "<encrypted message>"} to send an encrypted message.
+  
+- **GET Endpoint**:  
+  GET to ` + "`" + config.PostURL + "/api/" + uuidStr + "/get?msg=<message>&encrypted=<true/false>`" + ` to send a message.
+  
+- **Form Endpoint**:  
+  POST to ` + "`" + config.PostURL + "/api/" + uuidStr + "/form`" + ` with form data msg=<message>, encrypted=<true/false> to send a message.
+  
+- **File Endpoint**:  
+  POST to ` + "`" + config.PostURL + "/api/" + uuidStr + "/file`" + ` with form data file=<file> to send a file.
+
+More information can be found at [nerdneilsfield/simple-telegram-notification-bot](https://github.com/nerdneilsfield/simple-telegram-notification-bot)
+`
+	sendMarkdownV2(chatID, helpText)
 }
 
 func startBot() {
@@ -216,10 +264,11 @@ func startBot() {
 				msg.Text = "I don't know that command"
 				msg.Text += "\n\n"
 				msg.Text += "Use /subscribe to subscribe to receive messages"
-				msg.Text += "\n"
+				msg.Text += "\n\n"
 				msg.Text += "Use /unsubscribe to unsubscribe from receiving messages"
-				msg.Text += "\n"
+				msg.Text += "\n\n"
 				msg.Text += "Use /regenerate to regenerate UUID and AES key"
+				msg.Text += "\n\n"
 			}
 			if msg.Text != "" {
 				bot.Send(msg)
@@ -444,7 +493,8 @@ func handleFile(c *gin.Context) {
 
 func main() {
 
-	logger, _ = zap.NewDevelopment()
+	logger, _ = zap.NewProduction()
+	defer logger.Sync()
 	// Parse config file
 	if _, err := toml.DecodeFile(*config_path, &config); err != nil {
 		logger.Fatal("Failed to parse config file:", zap.Error(err))
