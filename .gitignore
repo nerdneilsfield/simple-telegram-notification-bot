@@ -21,4 +21,5 @@
 go.work
 server
 config.toml
+docker-compose.yml
 *.db

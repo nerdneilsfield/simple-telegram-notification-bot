@@ -38,8 +38,8 @@ type Config struct {
 }
 
 type Message struct {
-	encrypted bool   `json:"encrypted"`
-	msg       string `json:"msg"`
+	Encrypted bool   `json:"encrypted"`
+	Msg       string `json:"msg"`
 }
 
 var db *gorm.DB
@@ -295,8 +295,8 @@ func handleJSON(c *gin.Context) {
 			})
 			return
 		} else {
-			if msg.encrypted {
-				decrypted, err := decrypt(msg.msg, subscription.AESKey)
+			if msg.Encrypted {
+				decrypted, err := decrypt(msg.Msg, subscription.AESKey)
 				if err != nil {
 					logger.Error("Failed to decrypt message", zap.Error(err))
 					c.JSON(http.StatusBadRequest, gin.H{
@@ -309,8 +309,8 @@ func handleJSON(c *gin.Context) {
 					"message": "Message sent",
 				})
 			} else {
-				logger.Info("Received message: " + msg.msg)
-				bot.Send(tgbotapi.NewMessage(subscription.ChatID, msg.msg))
+				logger.Info("Received message: " + msg.Msg)
+				bot.Send(tgbotapi.NewMessage(subscription.ChatID, msg.Msg))
 				c.JSON(http.StatusOK, gin.H{
 					"message": "Message sent",
 				})
