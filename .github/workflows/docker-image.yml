@@ -46,4 +46,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: {{ env.IMAGE_NAME_DOCKERHUB }}:latest
+          tags: ${{ env.IMAGE_NAME_DOCKERHUB }}:latest
