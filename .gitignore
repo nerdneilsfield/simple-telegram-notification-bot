@@ -21,3 +21,4 @@
 go.work
 server
 config.toml
+*.db

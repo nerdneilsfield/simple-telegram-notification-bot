@@ -1,0 +1,4 @@
+telegram_token = ""
+telegram_api_url = "https://api.telegram.org/bot%s/%s"
+gin_address = "0.0.0.0:7888"
+post_url = "http://127.0.0.1:7888"
