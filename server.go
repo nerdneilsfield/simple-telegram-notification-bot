@@ -24,7 +24,9 @@ import (
 )
 
 type Subscription struct {
-	ChatID      int64 `gorm:"primaryKey"`
+	ChatID      int64
+	UserName    string
+	NickName    string
 	UUID        string
 	ReceiveMsgs bool
 	AESKey      string `gorm:"size:32"`
@@ -39,7 +41,15 @@ type Config struct {
 
 type Message struct {
 	Encrypted bool   `json:"encrypted"`
+	Format    string `json:"format"`
 	Msg       string `json:"msg"`
+}
+
+type KeyboardCallbackData struct {
+	Command          string `json:"command"`
+	CommandChatID    int64  `json:"command_chat_id"`
+	CurrentChatID    int64  `json:"current_chat_id"`
+	CurrentMessageID int    `json:"current_message_id"`
 }
 
 var db *gorm.DB
@@ -49,6 +59,10 @@ var logger *zap.Logger
 
 var config_path = flag.String("conf", "config.toml", "Path to config file")
 var db_path = flag.String("db", "subscriptions.db", "Path to database file")
+
+var versionStr = "v0.0.6"
+
+var inMemoyrChatStore = make(map[int]int)
 
 func initDB() {
 	var err error
@@ -78,6 +92,7 @@ func initBot(token string, url string) {
 		{Command: "regenerate", Description: "Regenerate UUID and AES key"},
 		{Command: "info", Description: "Get your chat ID, UUID and AES key"},
 		{Command: "help", Description: "Get help"},
+		{Command: "version", Description: "Get version"},
 	}...)
 	bot.Request(commandConfig)
 	logger.Info("Telegram bot commands set")
@@ -98,15 +113,50 @@ func sendMarkdownV2(chatID int64, text string) {
 	bot.Send(msg)
 }
 
+func sendHTML(chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeHTML
+	bot.Send(msg)
+}
+
+func sendText(chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	bot.Send(msg)
+}
+
+func getChatInformation(chatID int64) (*tgbotapi.Chat, error) {
+
+	chat, err := bot.GetChat(tgbotapi.ChatInfoConfig{
+		ChatConfig: tgbotapi.ChatConfig{
+			ChatID: chatID,
+		}})
+	if err != nil {
+		logger.Fatal("Failed to get chat information", zap.Error(err))
+		return nil, err
+	}
+	return &chat, nil
+}
+
 func handleSubscribe(chatID int64, managerID int64) {
+	chat, err := getChatInformation(chatID)
+	if err != nil {
+		logger.Error("Failed to get chat information", zap.Error(err))
+		bot.Send(tgbotapi.NewMessage(managerID, "Failed to get chat information"))
+		return
+	}
+	logger.Info("Received subscribe request", zap.Int64("chatID", chatID))
 	var subscription Subscription
 	db.First(&subscription, "chat_id = ?", chatID)
 	if subscription.UUID != "" {
 		subscription.ReceiveMsgs = true
+		subscription.UserName = chat.UserName
+		subscription.NickName = chat.FirstName + " " + chat.LastName
 		db.Save(&subscription)
 		subscripedText := ""
 		subscripedText += "You are already subscribed\n\n"
 		subscripedText += "Your chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
+		subscripedText += "Your username: `" + subscription.UserName + "`\n\n"
+		subscripedText += "Your nickname: `" + subscription.NickName + "`\n\n"
 		subscripedText += "Your UUID: `" + subscription.UUID + "`\n\n"
 		subscripedText += "Your AES key: `" + subscription.AESKey + "`\n\n"
 		sendMarkdownV2(managerID, subscripedText)
@@ -120,16 +170,26 @@ func handleSubscribe(chatID int64, managerID int64) {
 		bot.Send(tgbotapi.NewMessage(managerID, "Failed to generate AES key"))
 		return
 	}
-	db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey})
+	userName := chat.UserName
+	nickName := chat.FirstName + " " + chat.LastName
+	db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey, UserName: userName, NickName: nickName})
 	subscripedText := ""
 	subscripedText += "Subscribed\n\n"
 	subscripedText += "Your chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
+	subscripedText += "Your username: `" + userName + "`\n\n"
+	subscripedText += "Your nickname: `" + nickName + "`\n\n"
 	subscripedText += "Your UUID: `" + uuidStr + "`\n\n"
 	subscripedText += "Your AES key: `" + aesKey + "`\n\n"
 	sendMarkdownV2(managerID, subscripedText)
 }
 
 func handleRegenerate(chatID int64, managerID int64) {
+	chat, err := getChatInformation(chatID)
+	if err != nil {
+		logger.Error("Failed to get chat information", zap.Error(err))
+		bot.Send(tgbotapi.NewMessage(managerID, "Failed to get chat information"))
+		return
+	}
 	uuidStr := uuid.New().String()
 	uuidStr = strings.Replace(uuidStr, "-", "", -1) // Remove dashes
 	aesKey, err := generateRandomAESKey()
@@ -143,13 +203,15 @@ func handleRegenerate(chatID int64, managerID int64) {
 	if subscription.UUID != "" {
 		subscription.UUID = uuidStr
 		subscription.AESKey = aesKey
+		subscription.NickName = chat.FirstName + " " + chat.LastName
+		subscription.UserName = chat.UserName
 		db.Save(&subscription)
 		subscriptionText := "Regenerated\n\n"
 		subscriptionText += "Your UUID: `" + uuidStr + "`\n\n"
 		subscriptionText += "Your AES key: `" + aesKey + "`\n\n"
 		sendMarkdownV2(managerID, subscriptionText)
 	} else {
-		db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey})
+		db.Create(&Subscription{UUID: uuidStr, ChatID: chatID, ReceiveMsgs: true, AESKey: aesKey, UserName: chat.UserName, NickName: chat.FirstName + " " + chat.LastName})
 		subscriptionText := "Subscribed\n\n"
 		subscriptionText += "Your UUID: `" + uuidStr + "`\n\n"
 		subscriptionText += "Your AES key: `" + aesKey + "`\n\n"
@@ -170,11 +232,22 @@ func handleUnsubscribe(chatID int64, managerID int64) {
 }
 
 func handleInfo(chatID int64, managerID int64) {
+	chat, err := getChatInformation(chatID)
+	if err != nil {
+		logger.Error("Failed to get chat information", zap.Error(err))
+		bot.Send(tgbotapi.NewMessage(managerID, "Failed to get chat information"))
+		return
+	}
 	var subscription Subscription
 	db.First(&subscription, "chat_id = ?", chatID)
 	if subscription.UUID != "" {
+		subscription.NickName = chat.FirstName + " " + chat.LastName
+		subscription.UserName = chat.UserName
+		db.Save(&subscription)
 		msgText := ""
 		msgText += "Your chat ID: `" + strconv.FormatInt(chatID, 10) + "`\n\n"
+		msgText += "Your username: `" + subscription.UserName + "`\n\n"
+		msgText += "Your nickname: `" + subscription.NickName + "`\n\n"
 		msgText += "Your UUID: `" + subscription.UUID + "`\n\n"
 		msgText += "Your AES key: `" + subscription.AESKey + "`\n\n"
 		if subscription.ReceiveMsgs {
@@ -192,7 +265,6 @@ func handleInfo(chatID int64, managerID int64) {
 }
 
 func handleHelp(chatID int64, managerID int64) {
-
 	subscription := Subscription{}
 	db.First(&subscription, "chat_id = ?", chatID)
 	uuidStr := ""
@@ -231,7 +303,10 @@ More information can be found at [nerdneilsfield/simple-telegram-notification-bo
 	sendMarkdownV2(managerID, helpText)
 }
 
-func checkBotIsChannelAdmin(chatID int64) bool {
+func checkIsChannelAdmin(chatID int64, userID int64) bool {
+	if chatID == userID {
+		return true
+	}
 	admins, err := bot.GetChatAdministrators(tgbotapi.ChatAdministratorsConfig{
 		ChatConfig: tgbotapi.ChatConfig{
 			ChatID: chatID,
@@ -242,13 +317,203 @@ func checkBotIsChannelAdmin(chatID int64) bool {
 		sendMarkdownV2(chatID, "Failed to get chat administrators")
 		return false
 	}
-	botID := bot.Self.ID
 	for _, admin := range admins {
-		if admin.User.ID == botID {
+		if admin.User.ID == userID {
 			return true
 		}
 	}
 	return false
+}
+
+func checkBotIsChannelAdmin(chatID int64) bool {
+	return checkIsChannelAdmin(chatID, bot.Self.ID)
+}
+
+func checkIsManager(chatID int64, userID int64) bool {
+	return checkIsChannelAdmin(chatID, userID)
+}
+
+func checkIsForwardedChannelMessage(update tgbotapi.Update) bool {
+	if update.Message.ForwardFromChat != nil && (update.Message.ForwardFromChat.Type == "channel" || update.Message.ForwardFromChat.Type == "supergroup" || update.Message.ForwardFromChat.Type == "group") {
+		return true
+	}
+	return false
+}
+
+func getChatIDFromCommandArguments(args string) int64 {
+	if args == "" {
+		return 0
+	}
+	arguments := strings.TrimSpace(args)
+	chatID, err := strconv.ParseInt(arguments, 10, 64)
+	if err != nil {
+		logger.Error("Failed to parse chat ID", zap.Error(err))
+		return 0
+	}
+	return chatID
+}
+
+func processCommand(update tgbotapi.Update) {
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+
+	chatID := getChatIDFromCommandArguments(update.Message.CommandArguments())
+	if chatID == 0 {
+		chatID = update.Message.Chat.ID
+	}
+
+	logger.Info("Given Chat ID is ", zap.Int64("chat_id", chatID))
+
+	if !checkIsManager(chatID, update.Message.From.ID) {
+		logger.Info("Receive command but user is not manager")
+		sendMarkdownV2(update.Message.Chat.ID, "Only the administrator of the channel/group can use this command")
+		return
+	}
+
+	switch update.Message.Command() {
+	case "start":
+		handleHelp(chatID, update.Message.Chat.ID)
+	case "subscribe":
+		handleSubscribe(chatID, update.Message.Chat.ID)
+	case "unsubscribe":
+		handleUnsubscribe(chatID, update.Message.Chat.ID)
+	case "regenerate":
+		handleRegenerate(chatID, update.Message.Chat.ID)
+	case "version":
+		msg.Text = versionStr
+	case "info":
+		handleInfo(chatID, update.Message.Chat.ID)
+	case "help":
+		handleHelp(chatID, update.Message.Chat.ID)
+	default:
+		msg.Text = "I don't know that command"
+		msg.Text += "\n\n"
+		msg.Text += "Use /subscribe to subscribe to receive messages"
+		msg.Text += "\n\n"
+		msg.Text += "Use /unsubscribe to unsubscribe from receiving messages"
+		msg.Text += "\n\n"
+		msg.Text += "Use /regenerate to regenerate UUID and AES key"
+		msg.Text += "\n\n"
+	}
+	if msg.Text != "" {
+		bot.Send(msg)
+	}
+}
+
+func serilizeKeyboardCallbackData(data KeyboardCallbackData) string {
+	return fmt.Sprintf("%s %s %s %s", data.Command, strconv.FormatInt(data.CommandChatID, 10), strconv.FormatInt(data.CurrentChatID, 10), strconv.Itoa(data.CurrentMessageID))
+}
+
+func deserializeKeyboardCallbackData(data string) KeyboardCallbackData {
+	var keyboardCallbackData KeyboardCallbackData
+	splitData := strings.Split(data, " ")
+	if len(splitData) != 4 {
+		return keyboardCallbackData
+	}
+	keyboardCallbackData.Command = splitData[0]
+	keyboardCallbackData.CommandChatID, _ = strconv.ParseInt(splitData[1], 10, 64)
+	keyboardCallbackData.CurrentChatID, _ = strconv.ParseInt(splitData[2], 10, 64)
+	keyboardCallbackData.CurrentMessageID, _ = strconv.Atoi(splitData[3])
+	return keyboardCallbackData
+}
+
+func processForwardedChannelMessage(update tgbotapi.Update) {
+	logger.Info("Receive forwarded channel message", zap.Int64("user_id", update.Message.From.ID), zap.String("user_name", update.Message.Chat.UserName), zap.String("chat_name", update.Message.ForwardFromChat.Title))
+
+	if !checkBotIsChannelAdmin(update.Message.ForwardFromChat.ID) {
+		logger.Info("Receive forwarded channel message but bot is not channel admin")
+		sendMarkdownV2(update.Message.Chat.ID, "Please add me as an administrator to the channel")
+		return
+	}
+
+	if !checkIsChannelAdmin(update.Message.ForwardFromChat.ID, update.Message.From.ID) {
+		logger.Info("Receive forwarded channel message but user is not channel admin")
+		sendMarkdownV2(update.Message.Chat.ID, "Only the administrator of the channel can use this command")
+		return
+	}
+
+	// send inline keyboard
+	msgText := "Channel name: `" + update.Message.ForwardFromChat.Title + "`\n\n"
+	msgText += "Channel id: `" + strconv.FormatInt(update.Message.ForwardFromChat.ID, 10) + "`\n\n"
+	msgText += "Channel username: `" + update.Message.ForwardFromChat.UserName + "`\n\n"
+	msgText += "Choose an option:"
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText)
+	msg.ParseMode = tgbotapi.ModeMarkdownV2
+
+	logger.Info(serilizeKeyboardCallbackData(KeyboardCallbackData{Command: "subscribe", CommandChatID: update.Message.ForwardFromChat.ID, CurrentChatID: update.Message.Chat.ID, CurrentMessageID: update.Message.MessageID}))
+
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Subscribe", serilizeKeyboardCallbackData(KeyboardCallbackData{Command: "subscribe", CommandChatID: update.Message.ForwardFromChat.ID, CurrentChatID: update.Message.Chat.ID, CurrentMessageID: update.Message.MessageID}))),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Unsubscribe", serilizeKeyboardCallbackData(KeyboardCallbackData{Command: "unsubscribe", CommandChatID: update.Message.ForwardFromChat.ID, CurrentChatID: update.Message.Chat.ID, CurrentMessageID: update.Message.MessageID}))),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Regenerate", serilizeKeyboardCallbackData(KeyboardCallbackData{Command: "regenerate", CommandChatID: update.Message.ForwardFromChat.ID, CurrentChatID: update.Message.Chat.ID, CurrentMessageID: update.Message.MessageID}))),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Info", serilizeKeyboardCallbackData(KeyboardCallbackData{Command: "info", CommandChatID: update.Message.ForwardFromChat.ID, CurrentChatID: update.Message.Chat.ID, CurrentMessageID: update.Message.MessageID}))),
+	)
+	msg_, err := bot.Send(msg)
+	if err != nil {
+		logger.Error("Failed to send inline keyboard", zap.Error(err))
+		sendMarkdownV2(update.Message.Chat.ID, "Failed to send inline keyboard:"+err.Error())
+	}
+	logger.Info("Sent inline keyboard", zap.Int("message_id", msg_.MessageID))
+	inMemoyrChatStore[update.Message.MessageID] = msg_.MessageID
+}
+
+func processCallbackQuery(update tgbotapi.Update) {
+	logger.Info("Receive callback query", zap.String("data", update.CallbackQuery.Data))
+
+	keyboardCallbackData := deserializeKeyboardCallbackData(update.CallbackQuery.Data)
+	if keyboardCallbackData.Command == "" {
+		logger.Error("Failed to deserialize keyboard callback data")
+		bot.Send(tgbotapi.NewMessage(keyboardCallbackData.CurrentChatID, "Failed to deserialize keyboard callback data"))
+	} else {
+		switch keyboardCallbackData.Command {
+		case "subscribe":
+			handleSubscribe(keyboardCallbackData.CommandChatID, keyboardCallbackData.CurrentChatID)
+		case "unsubscribe":
+			handleUnsubscribe(keyboardCallbackData.CommandChatID, keyboardCallbackData.CurrentChatID)
+		case "regenerate":
+			handleRegenerate(keyboardCallbackData.CommandChatID, keyboardCallbackData.CurrentChatID)
+		case "info":
+			handleInfo(keyboardCallbackData.CommandChatID, keyboardCallbackData.CurrentChatID)
+		default:
+			logger.Error("Invalid command")
+			bot.Send(tgbotapi.NewMessage(keyboardCallbackData.CurrentChatID, "Invalid command"))
+		}
+	}
+
+	// delete inline keyboard
+
+	messageID := inMemoyrChatStore[keyboardCallbackData.CurrentMessageID]
+
+	_, err := bot.Request(tgbotapi.NewDeleteMessage(keyboardCallbackData.CurrentChatID, messageID))
+	if err != nil {
+		logger.Error("Failed to delete inline keyboard", zap.Error(err))
+		bot.Send(tgbotapi.NewMessage(keyboardCallbackData.CurrentChatID, "Failed to delete inline keyboard"))
+	}
+	delete(inMemoyrChatStore, keyboardCallbackData.CurrentMessageID)
+}
+
+func processUpdate(update tgbotapi.Update) {
+	if update.Message != nil {
+
+		logger.Info("[%s] %s", zap.Int("update_id", update.UpdateID), zap.String("message", update.Message.Text))
+
+		if checkIsForwardedChannelMessage(update) {
+			processForwardedChannelMessage(update)
+		}
+
+		if update.Message.IsCommand() {
+			processCommand(update)
+			return
+		}
+	} else if update.CallbackQuery != nil {
+		processCallbackQuery(update)
+		return
+	} else {
+		return
+	}
 }
 
 func startBot() {
@@ -256,78 +521,8 @@ func startBot() {
 	u.Timeout = 60
 
 	updates := bot.GetUpdatesChan(u)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
 	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-
-		logger.Info("[%s] %s", zap.Int("update_id", update.UpdateID), zap.String("message", update.Message.Text))
-
-		if update.Message.ForwardFromChat != nil && update.Message.ForwardFromChat.Type == "channel" {
-			logger.Info("Received forwarded message from channel: " + update.Message.ForwardFromChat.Title)
-
-			chatID := update.Message.ForwardFromChat.ID
-			if !checkBotIsChannelAdmin(chatID) {
-				logger.Error("Bot is not an admin of the channel")
-				sendMarkdownV2(update.Message.Chat.ID, "Bot is not an admin of the channel")
-				continue
-			} else {
-				logger.Info("Bot is an admin of the channel")
-				sendMarkdownV2(update.Message.Chat.ID, "Bot is an admin of the channel, channel id is: `"+strconv.FormatInt(chatID, 10)+"`")
-				continue
-			}
-		}
-
-		if update.Message.IsCommand() {
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-
-			var chatID int64
-			if update.Message.CommandArguments() != "" {
-				arguments := strings.TrimSpace(update.Message.CommandArguments())
-				logger.Info("Received command arguments: " + arguments)
-				chatID, err := strconv.ParseInt(arguments, 10, 64)
-				if err != nil {
-					logger.Error("Failed to parse chat ID", zap.Error(err))
-					msgText := "Failed to parse chat ID: " + arguments
-					sendMarkdownV2(update.Message.Chat.ID, msgText)
-					continue
-				}
-				logger.Info("Setting for Chat ID: " + strconv.FormatInt(chatID, 10))
-			} else {
-				chatID = update.Message.Chat.ID
-			}
-
-			switch update.Message.Command() {
-			case "start":
-				handleHelp(chatID, update.Message.Chat.ID)
-			case "subscribe":
-				handleSubscribe(chatID, update.Message.Chat.ID)
-			case "unsubscribe":
-				handleUnsubscribe(chatID, update.Message.Chat.ID)
-			case "regenerate":
-				handleRegenerate(chatID, update.Message.Chat.ID)
-			case "info":
-				handleInfo(chatID, update.Message.Chat.ID)
-			case "help":
-				handleHelp(chatID, update.Message.Chat.ID)
-			default:
-				msg.Text = "I don't know that command"
-				msg.Text += "\n\n"
-				msg.Text += "Use /subscribe to subscribe to receive messages"
-				msg.Text += "\n\n"
-				msg.Text += "Use /unsubscribe to unsubscribe from receiving messages"
-				msg.Text += "\n\n"
-				msg.Text += "Use /regenerate to regenerate UUID and AES key"
-				msg.Text += "\n\n"
-			}
-			if msg.Text != "" {
-				bot.Send(msg)
-			}
-		}
+		processUpdate(update)
 	}
 }
 

@@ -54,6 +54,10 @@ The following endpoints are available for interacting with the server:
 - POST `/api/:uuid/form`: Send a message via form data.
 - POST `/api/:uuid/file`: Send a file via form data.
 
+For channel, you need to add the bot as admin, then forward a channel message to the bot. Then, a inline keyboard will show, follow the keyboard.
+
+For group, you need to add the bot as admin, too.
+
 ### Building
 
 To build the project, ensure you have Go installed and run:
