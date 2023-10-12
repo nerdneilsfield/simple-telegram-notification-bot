@@ -9,7 +9,7 @@ services:
     image: nerdneils/simple-telegram-notification-bot:latest
     networks:
       - proxy
-    command: ./server -conf /etc/notification-bot/config.toml -db /data/notification-bot.db
+    command:GIN_MODE=release ./server -conf /etc/notification-bot/config.toml -db /data/notification-bot.db
     volumes:
       - ./config.toml:/etc/notification-bot/config.toml
       - ./data:/data
