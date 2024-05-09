@@ -50,8 +50,12 @@ func main() {
 	// Initialize the database and bot
 	initDB()
 	initBot(config.TelegramToken, config.TelegramAPIURL)
+	initMarkdownRender()
 
 	router := gin.Default()
+
+	router.Use(loggerGinMiddleware())
+	router.Use(enableCors())
 
 	router.GET("/", handleIndex)
 	router.GET("/version", handleVersion)
@@ -74,6 +78,7 @@ func main() {
 
 	articleGroup := router.Group("/html")
 	articleGroup.GET("/:uuid", handleHTML)
+	articleGroup.GET("/", handleExample)
 
 	go startBot()
 

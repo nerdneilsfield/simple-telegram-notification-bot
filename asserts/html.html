@@ -1,37 +1,68 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-	<head>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1, minimal-ui">
-		<title>Telegram Notification Server</title>
-		<meta name="color-scheme" content="light dark">
-		<link rel="stylesheet" href="/asserts/github-markdown.css">
-		<style>
-			body {
-				box-sizing: border-box;
-				min-width: 200px;
-				max-width: 980px;
-				margin: 0 auto;
-				padding: 45px;
-			}
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimal-ui"
+    />
+    <title>{{ .Title }}</title>
+    <meta name="color-scheme" content="light dark" />
+    <link rel="stylesheet" href="/asserts/github-markdown.css" />
+    <style>
+      body {
+        box-sizing: border-box;
+        min-width: 200px;
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 45px;
+      }
 
-			@media (prefers-color-scheme: dark) {
-				body {
-					background-color: #0d1117;
-				}
-			}
-		</style>
-		<link rel="stylesheet" href="/asserts/gh-fork-ribbon.min.css">
-		<style>
-			.github-fork-ribbon:before {
-				background-color: #121612;
-			}
-		</style>
-	</head>
-	<body>
-		<article class="markdown-body">
-            {{ .MarkdownContent }}
-		</article>
-		<a class="github-fork-ribbon" href="https://github.com/nerdneilsfield/" data-ribbon="Fork me on GitHub" title="Fork me on GitHub">Fork me on GitHub</a>
-	</body>
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #0d1117;
+        }
+      }
+    </style>
+    <link rel="stylesheet" href="/asserts/gh-fork-ribbon.min.css" />
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" integrity="sha256-ko4j5rn874LF8dHwW29/xabhh8YBleWfvxb8nQce4Fc=" crossorigin="anonymous">
+    <style>
+      .github-fork-ribbon:before {
+        background-color: #121612;
+      }
+    </style>
+  </head>
+  <body>
+    <article class="markdown-body">{{ .MarkdownContent }}</article>
+    <a
+      class="github-fork-ribbon"
+      href="https://github.com/nerdneilsfield/"
+      data-ribbon="Fork me on GitHub"
+      title="Fork me on GitHub"
+      >Fork me on GitHub</a
+    >
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [
+            ["$", "$"],
+            ["\\(", "\\)"],
+          ],
+          displayMath: [
+            ["$$", "$$"],
+            ["\\[", "\\]"],
+          ],
+        },
+        svg: {
+          fontCache: "global",
+        },
+      };
+    </script>
+    <script
+      type="text/javascript"
+      async
+      src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.0/es5/tex-mml-chtml.js"
+    ></script>
+	<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  </body>
 </html>

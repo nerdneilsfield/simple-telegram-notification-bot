@@ -13,7 +13,7 @@ type Subscription struct {
 
 type Article struct {
 	UUID         string `json:"uuid"`
-	MarkdownText string `json:"msg"`
+	MarkdownText string `json:"markdown_text"`
 }
 
 type Config struct {
@@ -37,5 +37,6 @@ type KeyboardCallbackData struct {
 }
 
 type PageData struct {
+	Title           string
 	MarkdownContent template.HTML
 }

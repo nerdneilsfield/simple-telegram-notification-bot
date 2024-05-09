@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -43,5 +45,34 @@ func setLogger(log_path string, debug bool, save_log bool) {
 		logger = zap.New(teeCore, zap.AddCaller())
 	} else {
 		logger = zap.New(consoleCore, zap.AddCaller())
+	}
+}
+
+func loggerGinMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
+		c.Next()
+		end := time.Now()
+		latency := end.Sub(start)
+		if raw != "" {
+			path = path + "?" + raw
+		}
+		status := c.Writer.Status()
+		clientIP := c.ClientIP()
+		method := c.Request.Method
+		realIP := clientIP
+		if c.Request.Header.Get("X-Forwarded-For") != "" {
+			realIP = c.Request.Header.Get("X-Forwarded-For")
+		}
+		logger.Debug("Request",
+			zap.Int("status", status),
+			zap.Duration("latency", latency),
+			zap.String("clientIP", clientIP),
+			zap.String("realIP", realIP),
+			zap.String("method", method),
+			zap.String("path", path),
+		)
 	}
 }

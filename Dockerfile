@@ -5,7 +5,7 @@ RUN apk add --no-cache git gcc musl-dev sqlite-dev
 # Set the current working directory inside the container
 WORKDIR /app
 # Copy the source from the current directory to the working directory inside the container 
-COPY server.go /app/server.go
+COPY *.go /app/
 COPY go.mod /app/go.mod
 COPY go.sum /app/go.sum
 COPY asserts /app/asserts

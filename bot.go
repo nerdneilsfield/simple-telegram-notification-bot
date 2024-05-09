@@ -64,6 +64,7 @@ func sendServerHTML(chatID int64, text string) {
 }
 
 func sendWithFormat(chatID int64, text string, format string) {
+	logger.Debug("Sending format", zap.String("format", format), zap.String("text", text), zap.Int64("chatID", chatID))
 	format = strings.ToLower(format)
 	if format == "markdown" {
 		sendMarkdownV2(chatID, text)

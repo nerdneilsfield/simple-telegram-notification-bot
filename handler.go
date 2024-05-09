@@ -9,6 +9,28 @@ import (
 	"go.uber.org/zap"
 )
 
+func enableCors() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusOK)
+			return
+		}
+		c.Next()
+	}
+}
+
+func getRealIP(c *gin.Context) string {
+	clientIP := c.ClientIP()
+	realIP := clientIP
+	if c.Request.Header.Get("X-Forwarded-For") != "" {
+		realIP = c.Request.Header.Get("X-Forwarded-For")
+	}
+	return realIP
+}
+
 func checkAuthorization(c *gin.Context) (bool, *Subscription) {
 	uuidStr := c.Param("uuid")
 	var subscription Subscription
@@ -25,12 +47,13 @@ func checkAuthorization(c *gin.Context) (bool, *Subscription) {
 }
 
 func handleJSON(c *gin.Context) {
-	logger.Debug("Received JSON message from " + c.Request.Header["X-Forwarded-For"][0])
+	realIP := getRealIP(c)
+	logger.Debug("Received JSON message from " + realIP)
 	authorized, subscription := checkAuthorization(c)
 	if authorized {
 		var msg Message
 		if err := c.BindJSON(&msg); err != nil {
-			logger.Error("Invalid JSON from "+c.Request.Header["X-Forwarded-For"][0], zap.Error(err))
+			logger.Error("Invalid JSON from "+realIP, zap.Error(err))
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": "Invalid JSON",
 			})
@@ -59,7 +82,7 @@ func handleJSON(c *gin.Context) {
 			}
 		}
 	} else {
-		logger.Error("Invalid UUID or not subscribed from "+c.Request.Header["X-Forwarded-For"][0], zap.Error(fmt.Errorf("invalid UUID or not subscribed")))
+		logger.Error("Invalid UUID or not subscribed from "+realIP, zap.Error(fmt.Errorf("invalid UUID or not subscribed")))
 		c.JSON(http.StatusNotFound, gin.H{
 			"message": "Invalid UUID or not subscribed",
 		})
@@ -67,7 +90,8 @@ func handleJSON(c *gin.Context) {
 }
 
 func handleGet(c *gin.Context) {
-	logger.Debug("Received GET message from " + c.Request.Header["X-Forwarded-For"][0])
+	realIP := getRealIP(c)
+	logger.Debug("Received GET message from " + realIP)
 	authorized, subscription := checkAuthorization(c)
 	if authorized {
 		msg := c.Query("msg")
@@ -80,7 +104,7 @@ func handleGet(c *gin.Context) {
 			if encrypted == "true" {
 				decrypted, err := decrypt(msg, subscription.AESKey)
 				if err != nil {
-					logger.Error("Failed to decrypt message from: "+c.Request.Header["X-Forwarded-For"][0], zap.Error(err))
+					logger.Error("Failed to decrypt message from: "+realIP, zap.Error(err))
 					c.JSON(http.StatusBadRequest, gin.H{
 						"message": "Failed to decrypt message",
 					})
@@ -99,13 +123,13 @@ func handleGet(c *gin.Context) {
 				})
 			}
 		} else {
-			logger.Error("Invalid message from: "+c.Request.Header["X-Forwarded-For"][0], zap.Error(fmt.Errorf("invalid message")))
+			logger.Error("Invalid message from: "+realIP, zap.Error(fmt.Errorf("invalid message")))
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": "Invalid message",
 			})
 		}
 	} else {
-		logger.Error("Invalid UUID or not subscribed from: "+c.Request.Header["X-Forwarded-For"][0], zap.Error(fmt.Errorf("invalid UUID or not subscribed")))
+		logger.Error("Invalid UUID or not subscribed from: "+realIP, zap.Error(fmt.Errorf("invalid UUID or not subscribed")))
 		c.JSON(http.StatusNotFound, gin.H{
 			"message": "Invalid UUID or not subscribed",
 		})
@@ -113,7 +137,8 @@ func handleGet(c *gin.Context) {
 }
 
 func handleForm(c *gin.Context) {
-	logger.Debug("Received form message from " + c.Request.Header["X-Forwarded-For"][0])
+	realIP := getRealIP(c)
+	logger.Debug("Received form message from " + realIP)
 	authorized, subscription := checkAuthorization(c)
 	if authorized {
 		msg := c.PostForm("msg")
@@ -126,7 +151,7 @@ func handleForm(c *gin.Context) {
 			if encrypted == "true" {
 				decrypted, err := decrypt(msg, subscription.AESKey)
 				if err != nil {
-					logger.Error("Failed to decrypt message from: "+c.Request.Header["X-Forwarded-For"][0], zap.Error(err))
+					logger.Error("Failed to decrypt message from: "+realIP, zap.Error(err))
 					c.JSON(http.StatusBadRequest, gin.H{
 						"message": "Failed to decrypt message",
 					})
@@ -145,13 +170,13 @@ func handleForm(c *gin.Context) {
 				})
 			}
 		} else {
-			logger.Error("Invalid message from "+c.Request.Header["X-Forwarded-For"][0], zap.Error(fmt.Errorf("invalid message")))
+			logger.Error("Invalid message from "+realIP, zap.Error(fmt.Errorf("invalid message")))
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": "Invalid message",
 			})
 		}
 	} else {
-		logger.Error("Invalid UUID or not subscribed from "+c.Request.Header["X-Forwarded-For"][0], zap.Error(fmt.Errorf("invalid UUID or not subscribed")))
+		logger.Error("Invalid UUID or not subscribed from "+realIP, zap.Error(fmt.Errorf("invalid UUID or not subscribed")))
 		c.JSON(http.StatusNotFound, gin.H{
 			"message": "Invalid UUID or not subscribed",
 		})
@@ -159,7 +184,8 @@ func handleForm(c *gin.Context) {
 }
 
 func handleFile(c *gin.Context) {
-	logger.Debug("Received file from " + c.Request.Header["X-Forwarded-For"][0])
+	realIP := getRealIP(c)
+	logger.Debug("Received file from " + realIP)
 	authorized, subscription := checkAuthorization(c)
 	if authorized {
 		file, err := c.FormFile("file")
@@ -189,10 +215,13 @@ func handleFile(c *gin.Context) {
 }
 
 func handleHTML(c *gin.Context) {
+	readIP := getRealIP(c)
 	uuidStr := c.Param("uuid")
+	logger.Debug("Received HTML request", zap.String("readIP", readIP), zap.String("uuid", uuidStr))
 	var article Article
 	article_db.First(&article, "uuid = ?", uuidStr)
 	if article.UUID != "" {
+		logger.Debug("Found article", zap.String("uuid", article.UUID))
 		htmlData, err := useTemplateRenderMarkdown([]byte(article.MarkdownText))
 		if err != nil {
 			logger.Error("Failed to render markdown with uuid: "+article.UUID, zap.Error(err))
@@ -226,6 +255,10 @@ func handleIndex(c *gin.Context) {
 
 func handleChangeLog(c *gin.Context) {
 	handleEmbedMarkdown(c, "CHANGELOG.md")
+}
+
+func handleExample(c *gin.Context) {
+	handleEmbedMarkdown(c, "asserts/markdown-test.md")
 }
 
 func handleVersion(c *gin.Context) {
